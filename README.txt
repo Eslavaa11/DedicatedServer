@@ -1,156 +1,212 @@
-Player Host
+======================== INICIO ========================
 
-Sistema multijugador Host–Cliente hecho con Netcode for GameObjects (NGO).
-Un jugador actúa como Host (servidor + cliente) y el resto se conecta como Clientes.
-Incluye movimiento sincronizado, spawns separados, color por propietario y panel del host para expulsar (Kick) jugadores.
+SERVIDOR DEDICADO – UNITY + NETCODE + DOCKER
 
-Nota: El sistema de pausa global fue descartado para esta entrega. Se priorizó estabilidad y flujo Host/Clientes.
+Proyecto multijugador con servidor dedicado (Linux Server en Docker) y clientes Windows. La escena principal es: Scenes/Servidor_Dedicado. Los clientes se conectan por UDP 7777, ven a otros jugadores en tiempo real y se mueven de forma suave (interpolación).
 
-Demo (video)
+DEMO – QUÉ SE VE
 
-(Agrega aquí tu enlace a video) mostrando:
+3 o más clientes conectados al mismo servidor.
 
-Host + 2 clientes conectándose
+Cada jugador aparece en una posición distinta y con color propio por dueño.
 
-Movimiento sincronizado
+Movimiento en tiempo real, suave gracias a interpolación.
 
-Kick desde el HostPanel
+Los jugadores pueden entrar o salir sin reiniciar el servidor.
 
-Requisitos
+HUD simple en el cliente para poner IP y puerto y pulsar Start Client.
 
-Unity 6 (6000.2+ recomendado)
+REQUISITOS
 
-Netcode for GameObjects 2.5.x
+Unity 6.0.2f1 (o compatible con NGO 2.5.x).
 
-Plataforma de destino: Windows (Standalone)
+Docker Desktop (WSL2 recomendado en Windows).
 
-(LAN) Sin Relay: conexión directa por IP (localhost o IP de la red)
+Puerto UDP 7777 abierto.
 
-Estructura / Scripts principales
+Regla de firewall que permita UDP 7777.
 
-QuickStartHUD.cs – UI mínima (OnGUI) con botones Start Host / Client / Server y logs de conexión.
+ESTRUCTURA (RESUMEN)
 
-PlayerMovementHost.cs – Movimiento local del owner (WASD/Arrows) y replicación con NetworkTransform.
+/Assets/Scripts/ScrptsPlayerHost/ (BootWindowSize.cs, ColorByOwner.cs, PlayerMovementHost.cs, SpawnByClientId.cs, QuickStartHUD.cs, etc.)
+/Scenes/Servidor_Dedicado.unity
+/Dockerfile
+/Build_Server/PlayerServer/ (Linux Server: PlayerServer.x86_64 + PlayerServer_Data/)
+/Build_Client_Windows/PlayerClient/ (Windows: PlayerClient.exe + PlayerClient_Data/)
+Nota: No subir /Build_* a Git. Añadir a .gitignore.
 
-ColorByOwner.cs – Cambia el color del jugador según OwnerClientId (identificación visual).
+CÓMO CONSTRUIR – SERVIDOR (LINUX SERVER, HEADLESS)
 
-SpawnByClientId.cs – Asigna posición inicial separada por OwnerClientId (evita amontonamiento).
+Unity > File > Build Profiles…
 
-NetworkLobby.cs – Registra OnClientConnected/Disconnected y mantiene un diccionario clientId → nombre.
+Plataforma: Linux Server (Active).
 
-HostPanel.cs – Panel sólo para Host: lista de jugadores conectados y botón Kick por jugador.
+Scene List: dejar sólo Scenes/Servidor_Dedicado marcado.
 
-BootWindowSize.cs – Fuerza arranque en ventana y tamaño inicial (ej. 1280×720).
+Build a: Build_Server/PlayerServer/
+Comprobar que existen:
 
-(Opcional) AppBootstrap – Objetos utilitarios (DontDestroyOnLoad, etc.).
+Build_Server/PlayerServer/PlayerServer.x86_64
 
-Prefab del Player
+Build_Server/PlayerServer/PlayerServer_Data/
 
-NetworkObject (obligatorio)
+CÓMO CONSTRUIR – CLIENTE (WINDOWS)
 
-NetworkTransform (interpolación ON; Position/Rotation)
+Unity > Build Profiles…
 
-PlayerMovementHost, ColorByOwner, SpawnByClientId
+Plataforma: Windows (Switch Platform).
 
-NetworkManager (objeto “Networking”)
+Player Settings > Other Settings > Scripting Backend: MONO (rápido) o instalar IL2CPP si se desea.
 
-Transporte: UnityTransport (UDP, por defecto 127.0.0.1:7777)
+Scene List: dejar sólo Scenes/Servidor_Dedicado.
 
-Default Player Prefab: Player
+Build a: Build_Client_Windows/PlayerClient/
+Ejecutable: Build_Client_Windows/PlayerClient/PlayerClient.exe
 
-Network Prefabs List: Player registrado
+DOCKER – IMAGEN Y EJECUCIÓN
 
-Run In Background: ✓
+Contenido del Dockerfile (guardar en la raíz del proyecto):
+FROM ubuntu:22.04
+RUN apt-get update && apt-get install -y
+libglib2.0-0 libgssapi-krb5-2 libicu70 libssl3
+libstdc++6 libxi6 libxrender1 libxcursor1 libxrandr2 libxinerama1
+ca-certificates && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY Build_Server/PlayerServer/ ./
+RUN chmod +x ./*.x86_64 || true
+EXPOSE 7777/udp
+CMD bash -lc 'BIN=$(ls *.x86_64 | head -n1); echo "Starting $BIN"; exec ./"$BIN" -batchmode -nographics -logfile /dev/stdout -dedicated -port 7777'
 
-Enable Scene Management: ✓
+Construir imagen (PowerShell en la carpeta del Dockerfile):
+docker build -t playerhost-server .
 
-Tick Rate: 30
+Abrir firewall (una vez):
+New-NetFirewallRule -DisplayName "Unity NGO UDP 7777" -Direction Inbound -Action Allow -Protocol UDP -LocalPort 7777
 
-Cómo ejecutar (localhost)
+Ejecutar servidor en primer plano (ver logs):
+docker run --rm -p 7777:7777/udp playerhost-server
 
-Opción rápida (Editor + Build)
+Ejecutar en segundo plano:
+docker run -d --name playerhost -p 7777:7777/udp playerhost-server
+Ver logs: docker logs -f playerhost
+Parar: docker stop playerhost
 
-Abre la escena: Scenes/PlayerHost_Base (y guárdala).
+Si el servidor corre OK verás algo como:
+Starting PlayerServer.x86_64
+Forcing GfxDevice: Null
+[DEDICATED] Listening UDP 7777 (Servidor_Dedicado)
 
-En Networking/NetworkManager, confirma los ajustes de arriba.
+CÓMO JUGAR (CLIENTES)
 
-Pulsa Play en el Editor → Start Host (QuickStartHUD).
+Asegura que el servidor Docker está corriendo.
 
-Compila un build: File → Build Profiles… → Build (agrega la escena a Scenes In Build si no está).
+Abre PlayerClient.exe (puedes abrir 2 o más instancias, o usar otro PC en la LAN).
 
-Abre el ejecutable y pulsa Start Client.
+En el HUD:
 
-¡Listo! Host (Editor) y Cliente (Build) conectados. Repite el paso 5 para un tercer jugador.
+Address: 127.0.0.1 si Docker está en esta PC. Si es otra PC, usa su IP LAN (por ejemplo 192.168.x.x).
 
-Opción LAN (otro PC)
+Port: 7777
 
-En el Host, inicia Start Host.
+Pulsa Start Client (no usar Start Server/Host si usas el dedicado).
 
-En cada cliente, establece la IP del Host en QuickStartHUD (si tu HUD no expone el campo, deja 127.0.0.1 y compila una versión que lo exponga o hardcodea UnityTransport.SetConnectionData(ip, port) antes de StartClient()).
+Repite en el segundo/tercer cliente.
 
-Start Client.
+Controles: WASD o flechas para mover tu cubo (sólo lo controla su propietario).
 
-Si usas firewall/antivirus, permite el puerto UDP 7777.
+FUNCIONALIDADES IMPLEMENTADAS
 
-Diseño / UX
+Servidor dedicado headless (Linux Server en Docker).
 
-Ventana redimensionable: Player Settings → Resolution and Presentation → Windowed + Resizable Window ✓.
+Soporte 3+ jugadores concurrentes.
 
-Overlay y HUD minimalistas para pruebas (OnGUI).
+Sincronización en tiempo real del movimiento (NetworkTransform + interpolación).
 
-Cubos de colores por propietario para identificar jugadores.
+Spawns por ClientId (posiciones separadas) y color por propietario (identificación visual).
 
-Spawns escalonados para que cada jugador aparezca separado.
+Join/Leave sin reiniciar el servidor.
 
-Funcionalidades implementadas
+HUD simple de conexión (IP/puerto y Start Client).
+Extras para la rúbrica:
 
-Arquitectura Host–Cliente (el host también juega).
+Interpolación para suavizar movimiento.
 
-Conexiones simultáneas 3+ jugadores (ajustable por Max Connections en UnityTransport).
+Logs del servidor visibles en consola Docker.
 
-Movimiento del owner con replicación por NetworkTransform (fluido/interpolado).
+Opción de “Kick” desde HostPanel cuando se prueba en modo Host local (no dedicado).
 
-Join/Leave sin reiniciar (manejo de callbacks y lista de jugadores).
+ESTABILIDAD Y BUENAS PRÁCTICAS
 
-HostPanel: visualización de jugadores y Kick (desconexión limpia).
+Scenes In Build: dejar sólo Scenes/Servidor_Dedicado en cliente y servidor (evita desincronizaciones).
 
-Calidad de vida: Run In Background, ventana Windowed, tamaño inicial controlado.
+Construir realmente como Linux Server (no “Linux” normal).
 
-Instrucciones de Build
+En scripts de UI/ventana, proteger modo servidor:
+if (Application.isBatchMode) return;
+(Ejemplo: BootWindowSize.cs y cualquier OnGUI).
 
-Build Profiles / Build Settings
+NetworkManager: Run In Background ON, Tick Rate 30.
 
-Plataforma: Windows (Active)
+Time > Fixed Timestep 0.02 (por defecto).
 
-Scenes In Build: deja sólo la escena que usas (p. ej. Scenes/PlayerHost_Base). Evita duplicados con el mismo nombre en distinta ruta.
+Asegurar que el puerto UDP 7777 esté libre y permitido por el firewall.
 
-Build a carpeta nueva (ej. Build_1.0/) para no mezclar binarios.
+SOLUCIÓN DE PROBLEMAS
 
-Distribuye ese ejecutable a tus testers/jugadores.
+El cliente no conecta:
 
-⚠️ Importante: Host y clientes deben usar la misma build. Si cambias scripts, prefabs o escenas, reconstruye y usa la nueva versión en todos.
+Revisar IP/puerto y firewall. Ver docker logs -f playerhost.
 
-Problemas conocidos / Limitaciones
+Errores de shader o SIGSEGV en Docker:
 
-Pausa global: deshabilitada en esta versión por simplicidad/estabilidad.
+Se copió un build “Linux” normal o viejo. Volver a construir como Linux Server a carpeta limpia y reconstruir imagen con --no-cache.
 
-Sin Relay (Internet): sólo localhost/LAN. Para Internet usa Unity Relay o port-forwarding del 7777 (y abrir firewall).
+Scene Hash / Failed to spawn NetworkObject:
 
-Escenas duplicadas en Build: si aparecen errores como:
+Escenas distintas entre cliente/servidor. Dejar sólo Scenes/Servidor_Dedicado y recompilar ambos.
 
-Scene Hash ... does not exist in the HashToBuildIndex table
+Dos servidores en el mismo puerto:
 
-NetworkPrefab hash was not found / Failed to spawn NetworkObject
-Asegúrate de que solo la escena correcta esté en Scenes In Build y recompila.
+No usar Start Server/Host en clientes si Docker ya corre.
 
-Compatibilidad de versiones: si host/cliente usan builds distintos, pueden fallar la conexión o la sincronía.
+CUMPLIMIENTO DE LA RÚBRICA
 
-Guía de pruebas sugeridas
+Estabilidad (5/5): servidor dedicado estable; join/leave sin reiniciar; Run In Background; Tick 30; escena única coherente.
 
-Host (Editor) + 2 clientes (builds): verificar que todos ven 3 cubos y se mueven fluidamente.
+Sincronización (5/5): movimiento con NetworkTransform e interpolación; sin botones de sincronización manual; fluido.
 
-Conectar/desconectar clientes en tiempo real (join/leave).
+Conexiones (5/5): 3+ jugadores; desconexiones limpias; lista visible en HUD para pruebas locales con HostPanel (opcional).
 
-Usar Kick desde el HostPanel y comprobar que el cliente expulsado se desconecta sin colgar el host.
+Diseño/UI (5/5): HUD claro (IP/puerto/Start Client), colores por owner, spawns separados.
 
-Cambiar el tamaño de la ventana (resizable) y confirmar que el input y red siguen bien.
+Funciones adicionales (5/5): interpolación + logs visibles (y Kick en pruebas Host).
+
+Documentación (5/5): este TXT explica instalación, build, Docker, juego y troubleshooting.
+
+Experiencia de usuario (5/5): conexión simple y movimiento suave.
+
+Seguimiento de instrucciones (5/5): proyecto base, servidor en Docker, múltiples clientes, README/TXT completo.
+
+VIDEO DE ENTREGA (GUION SUGERIDO)
+
+Terminal con docker run --rm -p 7777:7777/udp playerhost-server mostrando que el servidor escucha.
+
+Cliente A: Address 127.0.0.1, Port 7777, Start Client, moverse.
+
+Cliente B (segunda instancia o segunda PC con IP LAN), Start Client, moverse.
+
+Mostrar que ambos se ven e interactúan en tiempo real.
+
+Cerrar un cliente y verificar que el servidor sigue estable.
+
+LIMITACIONES
+
+Proyecto de ejemplo minimalista para enfocarse en conectividad y sincronización.
+
+En Internet pública se requiere apertura de puertos o Relay/DTLS (no incluido).
+
+LICENCIA / USO
+
+Uso académico para el taller. Se puede reutilizar y adaptar dentro del curso.
+
+======================== FIN ========================
